@@ -64,6 +64,19 @@ HTMLParser.__index = HTMLParser
 }
 ]]
 
+--!Luau -> Lua5.1 Compatibility
+
+local typeof = typeof or type
+local charPattern = utf8.charpattern or "[%z\x01-\x7F\xC2-\xF4][\x80-\xBF]*"
+local splitSpaces = string.split or function(str, _)
+    str = str .. " "
+    local returnedTab = {}
+    for subStr in string.gmatch(str, "(.-) ") do
+        table.insert(returnedTab,subStr)
+    end
+    return returnedTab
+end
+
 --!CONSTANTS
 
 local DEFAULT_PARSER_OPTIONS = {
@@ -100,7 +113,7 @@ local VOID_ELEMENTS = {
 local function DeepCopy(t)
     local copy = {}
     for k, v in pairs(t) do
-        if type(v) == "table" then
+        if typeof(v) == "table" then
             copy[k] = DeepCopy(v)
         else
             copy[k] = v
@@ -113,12 +126,12 @@ end
 --Useful for doing things like finding all nodes with a certain class, or all nodes with a certain id, etc...
 function HTMLParser.GetDescendantNodesWhereCallbackIsValid(node, callback)
     local validNodes = {}
-    for _,child in node.children do
+    for _,child in ipairs(node.children) do
         if typeof(child)=="table" then
             if callback(child) then
                 table.insert(validNodes, child)
             end
-            for _,validChildNode in HTMLParser.GetDescendantNodesWhereCallbackIsValid(child, callback) do
+            for _,validChildNode in ipairs(HTMLParser.GetDescendantNodesWhereCallbackIsValid(child, callback)) do
                 table.insert(validNodes, validChildNode)
             end
         end
@@ -143,7 +156,7 @@ function HTMLParser.GetDescendantNodesWithMatchingClass(node, className)
         if descNode.classes then
             return descNode.classes[className] ~= nil
         elseif descNode.attributes.class then
-            local classesSplit = string.split(descNode.attributes.class, " ")
+            local classesSplit = splitSpaces(descNode.attributes.class, " ")
             return table.find(classesSplit, className) ~= nil
         end
     end)
@@ -236,7 +249,7 @@ function HTMLParser:ParseNodeRecursive(offset)
 
     local nextCharStart, nextCharEnd
     while currentOffset <= strLen do
-        nextCharStart, nextCharEnd = string.find(self.rawHtml, utf8.charpattern, currentOffset)
+        nextCharStart, nextCharEnd = string.find(self.rawHtml, charPattern, currentOffset)
         local nextChar = self.rawHtml:sub(nextCharStart, nextCharEnd)
 
         if buildStep == "name" then
@@ -244,7 +257,7 @@ function HTMLParser:ParseNodeRecursive(offset)
                 node.tagOpenStart = nextCharEnd
             elseif nextChar == ">" then --If we directly close the tag, then we're done with the node start and can skip over attribute declarations.
                 node.tagOpenEnd = nextCharEnd
-                node.tag = if self.options.lowerCaseTags then currentNodeNameBuilt:lower() else currentNodeNameBuilt
+                node.tag = self.options.lowerCaseTags and currentNodeNameBuilt:lower() or currentNodeNameBuilt
                 if isSelfClosingTag then
                     if VOID_ELEMENTS[currentNodeNameBuilt:lower()] then --This is a void element, so progress to the next character and then break the character consumer to return the node!
                         currentOffset += 1
@@ -258,7 +271,7 @@ function HTMLParser:ParseNodeRecursive(offset)
             elseif nextChar == "/" then
                 isSelfClosingTag = true
             elseif nextChar == " " and node.tagOpenStart then --we're transitioning from defining the tag name to defining its attributes!
-                node.tag = if self.options.lowerCaseTags then currentNodeNameBuilt:lower() else currentNodeNameBuilt
+                node.tag = self.options.lowerCaseTags and currentNodeNameBuilt:lower() or currentNodeNameBuilt
                 buildStep = "attributes"
             else
                 if node.tagOpenStart then --We don't care about characters before the first open tag character, so ignore them!
@@ -281,7 +294,7 @@ function HTMLParser:ParseNodeRecursive(offset)
                 end
                 --Is there an attribute that was being built when we hit the end of the tag definition? If so, add it to the attributes table!
                 if currentAttributeKeyBuilt ~= "" or currentAttributeValueBuilt ~= "" then
-                    local attrKey = if self.options.lowerCaseAttributes then currentAttributeKeyBuilt:lower() else currentAttributeKeyBuilt
+                    local attrKey = self.options.lowerCaseAttributes and currentAttributeKeyBuilt:lower() or currentAttributeKeyBuilt
                     node.attributes[attrKey] = currentAttributeValueBuilt
                     isBuildingAttributeName = true
                     currentAttributeKeyBuilt = ""
@@ -305,7 +318,7 @@ function HTMLParser:ParseNodeRecursive(offset)
                     end
                 else --Whitespace when defining the attribute string, outside of a string! This is the end of the attribute value, and the start of another attribute definition(or the end of the tag)!
                     if currentAttributeValueBuilt ~= "" then --We only care about this whitespace if the attribute value has some value in it! Otherwise, this is just whitespace between an attribute name's = sign and the attribute value - ignore it.
-                        local attrKey = if self.options.lowerCaseAttributes then currentAttributeKeyBuilt:lower() else currentAttributeKeyBuilt
+                        local attrKey = self.options.lowerCaseAttributes and currentAttributeKeyBuilt:lower() or currentAttributeKeyBuilt
                         node.attributes[attrKey] = currentAttributeValueBuilt
                         isBuildingAttributeName = true
                         currentAttributeKeyBuilt = ""
@@ -315,7 +328,7 @@ function HTMLParser:ParseNodeRecursive(offset)
             elseif nextChar == '"' or nextChar == "'" and not isBuildingAttributeName then --We're either starting/ending a string, or we're inside of one! We can only start strings at the start of attribute values, in names just treat them as literal characters.
                 if isInsideString and isInsideString == nextChar then --We're ending the string(and by extension the attribute)!
                     isInsideString = false
-                    local attrKey = if self.options.lowerCaseAttributes then currentAttributeKeyBuilt:lower() else currentAttributeKeyBuilt
+                    local attrKey = self.options.lowerCaseAttributes and currentAttributeKeyBuilt:lower() or currentAttributeKeyBuilt
                     node.attributes[attrKey] = currentAttributeValueBuilt
                     currentAttributeValueBuilt = ""
                     currentAttributeKeyBuilt = ""
@@ -330,7 +343,7 @@ function HTMLParser:ParseNodeRecursive(offset)
                     --If the last character was whitespace and this character is an attribute name character, then the last attribute had a blank value and this is the start of a new attribute name!
                     if wasWhitespacePreviousCharacterInAttributeNameDeclaration then
                         wasWhitespacePreviousCharacterInAttributeNameDeclaration = false
-                        local attrKey = if self.options.lowerCaseAttributes then currentAttributeKeyBuilt:lower() else currentAttributeKeyBuilt
+                        local attrKey = self.options.lowerCaseAttributes and currentAttributeKeyBuilt:lower() or currentAttributeKeyBuilt
                         node.attributes[attrKey] = currentAttributeValueBuilt
                         currentAttributeKeyBuilt = ""
                     end
@@ -341,7 +354,7 @@ function HTMLParser:ParseNodeRecursive(offset)
             end
         elseif buildStep == "content" then --At this point we can start building text nodes, or child nodes if we detect them!
             if nextChar == "<" then --We're either starting a new child node, or we're ending this node!
-                local peekAheadCharacterStart, peekAheadCharacterEnd = string.find(self.rawHtml, utf8.charpattern, nextCharEnd+1)
+                local peekAheadCharacterStart, peekAheadCharacterEnd = string.find(self.rawHtml, charPattern, nextCharEnd+1)
                 if not peekAheadCharacterStart or not peekAheadCharacterEnd then
                     error("Invalid HTML: Unexpected end of string while peeking ahead in tag content < character!")
                 end
@@ -352,6 +365,7 @@ function HTMLParser:ParseNodeRecursive(offset)
                 else --since the next character isn't a /, assume we're starting a new child node! Recurse this function into that node definition.
                     local childNode, offsetAfterThisChildNode = self:ParseNodeRecursive(nextCharEnd)
                     table.insert(node.children, childNode)
+                    childNode.parent = node
                     currentOffset = offsetAfterThisChildNode
                     continue
                 end
@@ -359,6 +373,10 @@ function HTMLParser:ParseNodeRecursive(offset)
                 if self.options.anonymousTextHandling ~= "ignore" then --If we should treat anonymous content text as child nodes in some way, then parse them out - otherwise ignore them entirely
                     local anonymousTextNode, offsetAfterAnonymousText = self:ParseAnonymousTextIntoNode(nextCharEnd)
                     table.insert(node.children, anonymousTextNode)
+                    --Is the anonymous text node we just inserted a node or a string(in accordance with the HTMLParserOptions)? If it's a node, set its parent to this node!
+                    if type(anonymousTextNode)=="table" then
+                        anonymousTextNode.parent = node
+                    end
                     currentOffset = offsetAfterAnonymousText
                     continue
                 end
@@ -395,7 +413,7 @@ function HTMLParser:ParseNodeClasses(node)
     node.classes = {}
     if node.attributes.class then
         --go through the class attributes and split them by spaces, then add every class to the classes dictionary - we index it by the class -> true to make lookup faster instead of needing table.find.
-        for _,className in string.split(node.attributes.class, " ") do
+        for _,className in ipairs(splitSpaces(node.attributes.class, " ")) do
             node.classes[className] = true
         end
         node.attributes.class = nil --nil out the class attribute since we've already parsed it into the classes table.
@@ -430,14 +448,14 @@ function HTMLParser:ParseDirect()
     if self.options.parseClassAttribute then --Should we replace the node.attributes.class string with the node.classes table?
         local function RecursiveParseClasses(node)
             local parsedNode = self:ParseNodeClasses(node)
-            for idx,child in parsedNode.children do
-                if typeof(child)=="table" then
+            for idx,child in ipairs(parsedNode.children) do
+                if type(child)=="table" then
                     parsedNode.children[idx] = RecursiveParseClasses(child)
                 end
             end
             return parsedNode
         end
-        for idx,node in nodes do
+        for idx,node in ipairs(nodes) do
             nodes[idx] = RecursiveParseClasses(node)
         end
     end
@@ -447,14 +465,14 @@ function HTMLParser:ParseDirect()
                 node.id = node.attributes.id
                 node.attributes.id = nil
             end
-            for idx,child in node.children do
+            for idx,child in ipairs(node.children) do
                 if typeof(child)=="table" then
                     node.children[idx] = SetIdRecursive(child)
                 end
             end
             return node
         end
-        for idx,node in nodes do
+        for idx,node in ipairs(nodes) do
             nodes[idx] = SetIdRecursive(node)
         end
     end
@@ -482,6 +500,10 @@ function HTMLParser:ParseAsDocument()
     self.root = rootNode
 
     rootNode.children = self:ParseDirect()
+    --Go through the top-level children of the root returned by ParseDirect and set their parent to the root node.
+    for _,child in ipairs(rootNode.children) do
+        child.parent = rootNode
+    end
 
     return rootNode
 end
