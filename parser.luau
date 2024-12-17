@@ -353,6 +353,7 @@ function HTMLParser:ParseNodeRecursive(offset: number): (HTMLNode, number)
                 else --since the next character isn't a /, assume we're starting a new child node! Recurse this function into that node definition.
                     local childNode, offsetAfterThisChildNode = self:ParseNodeRecursive(nextCharEnd)
                     table.insert(node.children, childNode)
+                    childNode.parent = node
                     currentOffset = offsetAfterThisChildNode
                     continue
                 end
@@ -360,6 +361,10 @@ function HTMLParser:ParseNodeRecursive(offset: number): (HTMLNode, number)
                 if self.options.anonymousTextHandling ~= "ignore" then --If we should treat anonymous content text as child nodes in some way, then parse them out - otherwise ignore them entirely
                     local anonymousTextNode, offsetAfterAnonymousText = self:ParseAnonymousTextIntoNode(nextCharEnd)
                     table.insert(node.children, anonymousTextNode)
+                    --Is the anonymous text node we just inserted a node or a string(in accordance with the HTMLParserOptions)? If it's a node, set its parent to this node!
+                    if type(anonymousTextNode)=="table" then
+                        anonymousTextNode.parent = node
+                    end
                     currentOffset = offsetAfterAnonymousText
                     continue
                 end
@@ -483,6 +488,10 @@ function HTMLParser:ParseAsDocument(): HTMLRootNode
     self.root = rootNode
 
     rootNode.children = self:ParseDirect()
+    --Go through the top-level children of the root returned by ParseDirect and set their parent to the root node.
+    for _,child in rootNode.children do
+        child.parent = rootNode
+    end
 
     return rootNode
 end
