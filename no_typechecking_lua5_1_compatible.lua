@@ -67,7 +67,7 @@ HTMLParser.__index = HTMLParser
 --!Luau -> Lua5.1 Compatibility
 
 local typeof = typeof or type
-local charPattern = utf8.charpattern or "[%z\x01-\x7F\xC2-\xF4][\x80-\xBF]*"
+local charPattern = (utf8 and utf8.charpattern) or "[%z\x01-\x7F\xC2-\xF4][\x80-\xBF]*"
 local splitSpaces = string.split or function(str, _)
     str = str .. " "
     local returnedTab = {}
