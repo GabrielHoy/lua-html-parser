@@ -185,18 +185,21 @@ function HTMLParser.New(parserOptions)
     local newParser = setmetatable({}, HTMLParser)
     newParser.options = parserOptions
 
+    newParser.parserCursorPosition = 0
+
     return newParser
 end
 
 function HTMLParser:SetHTMLToParse(html)
+    self.rawHtml = html
     --Strip out the doctype if it exists, and store it for the root element later.
     local doctypeStart, doctypeEnd, doctypeStr = string.find(html:lower(), "<!doctype%s+(.-)%s*>")
-
+    
     if doctypeStart and doctypeEnd then
         self.doctype = doctypeStr
-        self.rawHtml = html:sub(doctypeEnd+1)
+        self.parserCursorPosition = doctypeEnd
     else
-        self.rawHtml = html
+        self.parserCursorPosition = 0
     end
 
     self.parseCache = false
@@ -435,7 +438,7 @@ function HTMLParser:ParseDirect()
     local nodes = {}
 
     local htmlLen = string.len(self.rawHtml)
-    local currentOffset = 0
+    local currentOffset = self.parserCursorPosition
     while currentOffset <= htmlLen do
         local node, nextOffset = self:ParseNodeRecursive(currentOffset+1)
         if node then
