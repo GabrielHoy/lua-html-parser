@@ -33,6 +33,8 @@ export type HTMLParser = {
     ParseAsDocument: () -> HTMLRootNode, --Useful for parsing an entire HTML Document, you will most likely want this. Returns the root node of the parsed HTML, i.e in "<head></head><body></body>", it would return the an HTMLNode with a tag name of "root" with two children, "head" and "body".
 
 
+    commentLocations: {number}, --[startIdx,endIdx] positions of comments within the code, to ignore them while parsing.
+    parserCursorPosition: number, --The current position of the parser in the HTML string, used internally.
     options: HTMLParserOptions, --The options that the parser was created with, see HTMLParserOptions for more information.
     rawHtml: string?, --The raw HTML string that was set with SetHTMLToParse
     root: HTMLRootNode?, --The root node of the parsed HTML document, only set after calling ParseAsDocument.
@@ -190,6 +192,17 @@ function HTMLParser:SetHTMLToParse(html: string)
         self.parserCursorPosition = 0
     end
 
+    local commentStartIdx, commentEndIdx
+    local commentLocatorCursorPos = self.parserCursorPosition
+    self.commentLocations = {}
+    repeat
+        commentStartIdx, commentEndIdx = string.find(html, "<!%-%-.-%-%->", commentLocatorCursorPos)
+        if commentEndIdx then
+            table.insert(self.commentLocations, {commentStartIdx, commentEndIdx})
+            commentLocatorCursorPos = commentEndIdx+1
+        end
+    until not commentStartIdx or not commentEndIdx
+
     self.parseCache = false
 end
 
@@ -240,6 +253,14 @@ function HTMLParser:ParseNodeRecursive(offset: number): (HTMLNode, number)
 
     local nextCharStart, nextCharEnd
     while currentOffset <= strLen do
+        --Find the next comment in the HTML if any, and if the next character would be within a comment then skip over the entire comment!
+        local nextComment = self.commentLocations[1]
+        if nextComment and currentOffset >= nextComment[1] and currentOffset <= nextComment[2] then
+            currentOffset = nextComment[2]+1
+            table.remove(self.commentLocations,1)
+            continue
+        end
+
         nextCharStart, nextCharEnd = string.find(self.rawHtml, utf8.charpattern, currentOffset)
         local nextChar = self.rawHtml:sub(nextCharStart, nextCharEnd)
 
@@ -485,6 +506,7 @@ function HTMLParser:ParseAsDocument(): HTMLRootNode
     rootNode.tagCloseStart = string.len(self.rawHtml)
     rootNode.tagCloseEnd = string.len(self.rawHtml)
     rootNode.attributes = {}
+    rootNode.classes = if self.options.parseClassAttribute then {} else nil
     rootNode.root = rootNode
     rootNode.parent = nil
 

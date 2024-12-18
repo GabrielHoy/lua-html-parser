@@ -202,6 +202,18 @@ function HTMLParser:SetHTMLToParse(html)
         self.parserCursorPosition = 0
     end
 
+    
+    local commentStartIdx, commentEndIdx
+    local commentLocatorCursorPos = self.parserCursorPosition
+    self.commentLocations = {}
+    repeat
+        commentStartIdx, commentEndIdx = string.find(html, "<!%-%-.-%-%->", commentLocatorCursorPos)
+        if commentEndIdx then
+            table.insert(self.commentLocations, {commentStartIdx, commentEndIdx})
+            commentLocatorCursorPos = commentEndIdx+1
+        end
+    until not commentStartIdx or not commentEndIdx
+
     self.parseCache = false
 end
 
@@ -252,6 +264,14 @@ function HTMLParser:ParseNodeRecursive(offset)
 
     local nextCharStart, nextCharEnd
     while currentOffset <= strLen do
+        --Find the next comment in the HTML if any, and if the next character would be within a comment then skip over the entire comment!
+        local nextComment = self.commentLocations[1]
+        if nextComment and currentOffset >= nextComment[1] and currentOffset <= nextComment[2] then
+            currentOffset = nextComment[2]+1
+            table.remove(self.commentLocations,1)
+            continue
+        end
+        
         nextCharStart, nextCharEnd = string.find(self.rawHtml, charPattern, currentOffset)
         local nextChar = self.rawHtml:sub(nextCharStart, nextCharEnd)
 
@@ -497,6 +517,7 @@ function HTMLParser:ParseAsDocument()
     rootNode.tagCloseStart = string.len(self.rawHtml)
     rootNode.tagCloseEnd = string.len(self.rawHtml)
     rootNode.attributes = {}
+    rootNode.classes = self.options.parseClassAttribute and {} or nil
     rootNode.root = rootNode
     rootNode.parent = nil
 
