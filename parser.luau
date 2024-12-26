@@ -269,9 +269,10 @@ function HTMLParser:ParseNodeRecursive(offset: number): (HTMLNode, number)
                 node.tagOpenStart = nextCharEnd
             elseif nextChar == ">" then --If we directly close the tag, then we're done with the node start and can skip over attribute declarations.
                 node.tagOpenEnd = nextCharEnd
-                node.tag = if self.options.lowerCaseTags then currentNodeNameBuilt:lower() else currentNodeNameBuilt
-                if isSelfClosingTag then
-                    if VOID_ELEMENTS[currentNodeNameBuilt:lower()] then --This is a void element, so progress to the next character and then break the character consumer to return the node!
+                local loweredNodeName = currentNodeNameBuilt:lower()
+                node.tag = if self.options.lowerCaseTags then loweredNodeName else currentNodeNameBuilt
+                if isSelfClosingTag or VOID_ELEMENTS[loweredNodeName] then
+                    if VOID_ELEMENTS[loweredNodeName] then --This is a void element, so progress to the next character and then break the character consumer to return the node!
                         currentOffset += 1
                         break
                     else
@@ -294,8 +295,9 @@ function HTMLParser:ParseNodeRecursive(offset: number): (HTMLNode, number)
             if nextChar == ">" and not isInsideString then --we're done defining attributes, and are closing the element!
                 node.tagOpenEnd = nextCharEnd
 
-                if isSelfClosingTag then
-                    if VOID_ELEMENTS[currentNodeNameBuilt:lower()] then --This is a void element, so progress to the next character and then break the character consumer to return the node!
+                local loweredNodeName = currentNodeNameBuilt:lower()
+                if isSelfClosingTag or VOID_ELEMENTS[loweredNodeName] then
+                    if VOID_ELEMENTS[loweredNodeName] then --This is a void element, so progress to the next character and then break the character consumer to return the node!
                         currentOffset += 1
                         break
                     else
