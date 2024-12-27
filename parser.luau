@@ -241,7 +241,8 @@ function HTMLParser:ParseNodeRecursive(offset: number): (HTMLNode, number)
 
     local node = {
         children = {},
-        attributes = {}
+        attributes = {},
+        root = self.root
     }::HTMLNode
 
     local currentNodeNameBuilt = ""

@@ -252,7 +252,8 @@ function HTMLParser:ParseNodeRecursive(offset)
 
     local node = {
         children = {},
-        attributes = {}
+        attributes = {},
+        root = self.root
     }
 
     local currentNodeNameBuilt = ""
