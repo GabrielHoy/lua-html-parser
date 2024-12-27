@@ -97,6 +97,10 @@ local VOID_ELEMENTS = {
 	track = true,
 	wbr = true
 }
+--In this parser, "Raw Text" elements are elements that should not have their contents parsed, and should be treated as a single text node - think "script".
+local RAW_TEXT_ELEMENTS = {
+    script = true
+}
 
 --!FUNCTIONS
 
@@ -206,24 +210,27 @@ function HTMLParser:SetHTMLToParse(html: string)
     self.parseCache = false
 end
 
+function HTMLParser:CreateAnonymousTextNodeObject(text): HTMLNode | string
+    if self.options.anonymousTextHandling == "node" then
+        return {
+            tag = self.options.anonymousTextNodeName,
+            attributes = {},
+            children = {},
+            content = text,
+            root = self.root
+        }
+    elseif self.options.anonymousTextHandling == "string" then
+        return text
+    end
+end
+
 function HTMLParser:ParseAnonymousTextIntoNode(offset: number): (HTMLNode, number)
     local currentOffset = offset or 1
 
     local startAnonymousCapture, endAnonymousCapture = string.find(self.rawHtml, ".-<", currentOffset)
 
-    --Depending on the anonymousTextHandling option, we'll either return a node or a string.
-    local returnedNode
-    if self.options.anonymousTextHandling == "node" then
-        returnedNode = {
-            tag = self.options.anonymousTextNodeName,
-            attributes = {},
-            children = {},
-            content = self.rawHtml:sub(startAnonymousCapture, endAnonymousCapture-1),
-            root = self.root
-        }
-    elseif self.options.anonymousTextHandling == "string" then
-        returnedNode = self.rawHtml:sub(startAnonymousCapture, endAnonymousCapture-1)
-    end
+    --Depending on the anonymousTextHandling option, we'll either return a node or a string. This function handles that for us.
+    local returnedNode = self:CreateAnonymousTextNodeObject(self.rawHtml:sub(startAnonymousCapture, endAnonymousCapture-1))
 
     return returnedNode, endAnonymousCapture
 end
@@ -367,32 +374,47 @@ function HTMLParser:ParseNodeRecursive(offset: number): (HTMLNode, number)
                 end
             end
         elseif buildStep == "content" then --At this point we can start building text nodes, or child nodes if we detect them!
-            if nextChar == "<" then --We're either starting a new child node, or we're ending this node!
-                local peekAheadCharacterStart, peekAheadCharacterEnd = string.find(self.rawHtml, utf8.charpattern, nextCharEnd+1)
-                if not peekAheadCharacterStart or not peekAheadCharacterEnd then
-                    error("Invalid HTML: Unexpected end of string while peeking ahead in tag content < character!")
+            local loweredName = node.tag:lower()
+
+            if RAW_TEXT_ELEMENTS[loweredName] then
+                local rawTextCloseBeginIdx, rawTextCloseEndIdx = string.find(self.rawHtml:lower(), "</"..loweredName..">", currentOffset)
+                if not rawTextCloseBeginIdx then
+                    error("Invalid HTML: Raw-text element \""..loweredName.."\" was not closed!")
                 end
-                local peekAheadCharacter = self.rawHtml:sub(peekAheadCharacterStart, peekAheadCharacterEnd)
-                if peekAheadCharacter == "/" then --We're closing this tag!
-                    buildStep = "closing"
-                    node.tagCloseStart = nextCharEnd
-                else --since the next character isn't a /, assume we're starting a new child node! Recurse this function into that node definition.
-                    local childNode, offsetAfterThisChildNode = self:ParseNodeRecursive(nextCharEnd)
-                    table.insert(node.children, childNode)
-                    childNode.parent = node
-                    currentOffset = offsetAfterThisChildNode
-                    continue
-                end
+                table.insert(node.children, self:CreateAnonymousTextNodeObject(self.rawHtml:sub(currentOffset, rawTextCloseBeginIdx-1)))
+
+                node.tagCloseStart = rawTextCloseBeginIdx
+                currentOffset = rawTextCloseBeginIdx+1 --the beginning of the closer tag, plus the < character - we want to be one step in front of the < so we add 1...
+                buildStep = "closing"
+                continue
             else
-                if self.options.anonymousTextHandling ~= "ignore" then --If we should treat anonymous content text as child nodes in some way, then parse them out - otherwise ignore them entirely
-                    local anonymousTextNode, offsetAfterAnonymousText = self:ParseAnonymousTextIntoNode(nextCharEnd)
-                    table.insert(node.children, anonymousTextNode)
-                    --Is the anonymous text node we just inserted a node or a string(in accordance with the HTMLParserOptions)? If it's a node, set its parent to this node!
-                    if type(anonymousTextNode)=="table" then
-                        anonymousTextNode.parent = node
+                if nextChar == "<" then --We're either starting a new child node, or we're ending this node!
+                    local peekAheadCharacterStart, peekAheadCharacterEnd = string.find(self.rawHtml, utf8.charpattern, nextCharEnd+1)
+                    if not peekAheadCharacterStart or not peekAheadCharacterEnd then
+                        error("Invalid HTML: Unexpected end of string while peeking ahead in tag content < character!")
                     end
-                    currentOffset = offsetAfterAnonymousText
-                    continue
+                    local peekAheadCharacter = self.rawHtml:sub(peekAheadCharacterStart, peekAheadCharacterEnd)
+                    if peekAheadCharacter == "/" then --We're closing this tag!
+                        buildStep = "closing"
+                        node.tagCloseStart = nextCharEnd
+                    else --since the next character isn't a /, assume we're starting a new child node! Recurse this function into that node definition.
+                        local childNode, offsetAfterThisChildNode = self:ParseNodeRecursive(nextCharEnd)
+                        table.insert(node.children, childNode)
+                        childNode.parent = node
+                        currentOffset = offsetAfterThisChildNode
+                        continue
+                    end
+                else
+                    if self.options.anonymousTextHandling ~= "ignore" then --If we should treat anonymous content text as child nodes in some way, then parse them out - otherwise ignore them entirely
+                        local anonymousTextNode, offsetAfterAnonymousText = self:ParseAnonymousTextIntoNode(nextCharEnd)
+                        table.insert(node.children, anonymousTextNode)
+                        --Is the anonymous text node we just inserted a node or a string(in accordance with the HTMLParserOptions)? If it's a node, set its parent to this node!
+                        if type(anonymousTextNode)=="table" then
+                            anonymousTextNode.parent = node
+                        end
+                        currentOffset = offsetAfterAnonymousText
+                        continue
+                    end
                 end
             end
         elseif buildStep == "closing" then --We're 1 character after the < character that started a closing tag, we know what the tag name is so we can just skip to the end of the closing!
